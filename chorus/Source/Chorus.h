@@ -17,8 +17,8 @@ template <typename Type, size_t maxNumChannels = 2>
 class Chorus {
 public:
     Chorus() {
-        setDelayTime(0, 0.15f);
-        setDelayTime(1, 0.40f);
+        setDelayTime(0, 0.01f);
+        setDelayTime(1, 0.03f);
         setMaxDelayTime(0.05f);
     }
     
@@ -26,8 +26,7 @@ public:
         // Check value is positive
         jassert(value >= Type(0));
         
-        // NOTE: For now set each channel the same
-        delayTimes[channel] = value;
+        delayTimes[channel].setTargetValue(value);
         
         // Update the delay time
         updateDelayTime();
@@ -48,26 +47,32 @@ public:
         // Check value is positive
         jassert(value > Type(0));
         
-        lfoRateHz = value;
+        lfoRateHz.setTargetValue(value);
     }
     
     void setLfoDepth(Type value) {
         // Check value is positive
         jassert(value > Type(0));
         
-        lfoDepth = value;
+        lfoDepth.setTargetValue(value);
     }
     
     void setMix(Type value) {
         // Check value is positive
         jassert(value > Type(0));
         
-        mix = value;
+        mix.setTargetValue(value);
     }
     
     void prepareToPlay(double newSampleRate) {
         // Set the sample rate
         sampleRate = static_cast<Type>(newSampleRate);
+        
+        delayTimes[0].reset(sampleRate, 0.1);
+        delayTimes[1].reset(sampleRate, 0.1);
+        lfoRateHz.reset(sampleRate, 0.05);
+        lfoDepth.reset(sampleRate, 0.05);
+        mix.reset(sampleRate, 0.05);
         
         // Update the delayline size and time
         updateDelayLineSize();
@@ -95,7 +100,7 @@ public:
                 auto lfoVal = std::sin(lfoPhase[channel] * juce::MathConstants<Type>::twoPi);
                 
                 // Modulate the delay time based on the lfos value and depth
-                auto modulatedDelayTime = delayTimes[channel] + lfoVal * lfoDepth;
+                auto modulatedDelayTime = delayTimes[channel].getNextValue() + lfoVal * lfoDepth.getNextValue();
                 
                 // Calculate the modulated delay time in samples
                 auto modulatedDelayInSamples = modulatedDelayTime * sampleRate;
@@ -107,10 +112,10 @@ public:
                 auto delayedSample = delayLines[channel].read(modulatedDelayInSamples);
                 
                 // mix the raw sample with the delayed sample at a ratio
-                channelData[i] = inputSample * (1.0-mix) + delayedSample * mix;
+                channelData[i] = inputSample * (1.0-mix.getNextValue()) + delayedSample * mix.getNextValue();
                 
                 // update the phase
-                lfoPhase[channel] += lfoRateHz / sampleRate;
+                lfoPhase[channel] += lfoRateHz.getNextValue() / sampleRate;
                             if (lfoPhase[channel] >= 1.0)
                                 lfoPhase[channel] -= 1.0;
             }
@@ -124,20 +129,20 @@ private:
     }
     
     void updateDelayTime() noexcept {
-        for (size_t ch = 0; ch < maxNumChannels; ++ch)
-            delayTimesSample[ch] = (size_t) juce::roundToInt (delayTimes[ch] * sampleRate);
+        for (size_t channel = 0; channel < maxNumChannels; ++channel)
+            delayTimesSample[channel] = (size_t) juce::roundToInt (delayTimes[channel].getNextValue() * sampleRate);
     }
     
     std::array<DelayLine<Type>, maxNumChannels> delayLines;
     std::array<size_t, maxNumChannels> delayTimesSample;
-    std::array<Type, maxNumChannels> delayTimes;
+    std::array<juce::SmoothedValue<Type>, maxNumChannels> delayTimes;
     
     Type sampleRate { Type (44.1e3) };
     Type maxDelayTime { Type (0.50) };
     
     std::array<Type, maxNumChannels> lfoPhase {};
-    Type lfoRateHz { 0.25 };
-    Type lfoDepth { 0.005 };
-    Type mix { 0.5 };
+    juce::SmoothedValue<Type> lfoRateHz { 0.25 };
+    juce::SmoothedValue<Type> lfoDepth { 0.005 };
+    juce::SmoothedValue<Type> mix { 0.5 };
     
 };
